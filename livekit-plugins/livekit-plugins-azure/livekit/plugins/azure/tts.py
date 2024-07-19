@@ -36,7 +36,8 @@ class _TTSOptions:
     speech_region: str | None = None
     # see https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=tts
     voice: str | None = None
-
+    style: str | None = "customerservice"
+    styledegree: str | None = 1.5
 
 class TTS(tts.TTS):
     def __init__(
@@ -45,6 +46,8 @@ class TTS(tts.TTS):
         speech_key: str | None = None,
         speech_region: str | None = None,
         voice: str | None = None,
+        style: str | None = "customerservice",
+        styledegree: str | None = 1.5,
     ) -> None:
         super().__init__(
             streaming_supported=False,
@@ -61,7 +64,7 @@ class TTS(tts.TTS):
             raise ValueError("AZURE_SPEECH_REGION must be set")
 
         self._opts = _TTSOptions(
-            speech_key=speech_key, speech_region=speech_region, voice=voice
+            speech_key=speech_key, speech_region=speech_region, voice=voice, style=style, styledegree=styledegree
         )
 
     def synthesize(self, text: str) -> "ChunkedStream":
@@ -86,7 +89,15 @@ class ChunkedStream(tts.ChunkedStream):
             )
 
             def _synthesize() -> speechsdk.SpeechSynthesisResult:
-                return synthesizer.speak_text_async(self._text).get()  # type: ignore
+                ssml = f"""
+                <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US">
+                <voice name="{self._opts.voice}" effect="eq_telecomhp8k">
+                    <mstts:express-as style="{self._opts.style}" styledegree="{self._opts.styledegree}">
+                        {self._text}
+                    </mstts:express-as>
+                </voice>
+                </speak>"""
+                return synthesizer.speak_ssml_async(ssml).get()  # type: ignore
 
             result = await asyncio.to_thread(_synthesize)
             if result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:

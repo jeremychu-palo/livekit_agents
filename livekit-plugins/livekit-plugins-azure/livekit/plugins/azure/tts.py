@@ -22,6 +22,7 @@ from nested_lookup import nested_update
 
 from livekit import rtc
 from livekit.agents import tts
+from livekit.agents.utils import nanoid
 
 import azure.cognitiveservices.speech as speechsdk  # type: ignore
 
@@ -52,7 +53,9 @@ class TTS(tts.TTS):
         ssml_text_replace: str | None = None
     ) -> None:
         super().__init__(
-            streaming_supported=False,
+            capabilities=tts.TTSCapabilities(
+                streaming=False,
+            ),
             sample_rate=AZURE_SAMPLE_RATE,
             num_channels=AZURE_NUM_CHANNELS,
         )
@@ -160,6 +163,7 @@ class _PushAudioOutputStreamCallback(speechsdk.audio.PushAudioOutputStreamCallba
         super().__init__()
         self._event_queue = event_queue
         self._loop = loop
+        self._segment_id = nanoid()
 
     def write(self, audio_buffer: memoryview) -> int:
         audio_frame = rtc.AudioFrame(
@@ -169,6 +173,6 @@ class _PushAudioOutputStreamCallback(speechsdk.audio.PushAudioOutputStreamCallba
             samples_per_channel=audio_buffer.nbytes // 2,
         )
 
-        audio = tts.SynthesizedAudio(text="", data=audio_frame)
+        audio = tts.SynthesizedAudio(segment_id=nanoid(), frame=audio_frame)
         self._loop.call_soon_threadsafe(self._event_queue.put_nowait, audio)
         return audio_buffer.nbytes

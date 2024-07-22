@@ -17,6 +17,8 @@ import contextlib
 import os
 from dataclasses import dataclass
 from typing import Optional
+import xmltodict
+from nested_lookup import nested_update
 
 from livekit import rtc
 from livekit.agents import tts
@@ -36,8 +38,8 @@ class _TTSOptions:
     speech_region: str | None = None
     # see https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=tts
     voice: str | None = None
-    style: str | None = "customerservice"
-    styledegree: str | None = 1.5
+    ssml: dict | None = None
+    ssml_text_replace: str | None = None
 
 class TTS(tts.TTS):
     def __init__(
@@ -46,8 +48,8 @@ class TTS(tts.TTS):
         speech_key: str | None = None,
         speech_region: str | None = None,
         voice: str | None = None,
-        style: str | None = "customerservice",
-        styledegree: str | None = 1.5,
+        ssml: dict | None = None, 
+        ssml_text_replace: str | None = None
     ) -> None:
         super().__init__(
             streaming_supported=False,
@@ -64,7 +66,7 @@ class TTS(tts.TTS):
             raise ValueError("AZURE_SPEECH_REGION must be set")
 
         self._opts = _TTSOptions(
-            speech_key=speech_key, speech_region=speech_region, voice=voice, style=style, styledegree=styledegree
+            speech_key=speech_key, speech_region=speech_region, voice=voice, ssml=ssml, ssml_text_replace=ssml_text_replace
         )
 
     def synthesize(self, text: str) -> "ChunkedStream":
@@ -89,15 +91,13 @@ class ChunkedStream(tts.ChunkedStream):
             )
 
             def _synthesize() -> speechsdk.SpeechSynthesisResult:
-                ssml = f"""
-                <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US">
-                <voice name="{self._opts.voice}" effect="eq_telecomhp8k">
-                    <mstts:express-as style="{self._opts.style}" styledegree="{self._opts.styledegree}">
-                        {self._text}
-                    </mstts:express-as>
-                </voice>
-                </speak>"""
-                return synthesizer.speak_ssml_async(ssml).get()  # type: ignore
+                ssml = self._opts.ssml
+                if (ssml is not None):
+                    nested_update(ssml, key=self._opts.ssml_text_replace, value=self._text, in_place=True)
+                    ssmlstring=xmltodict.unparse(self._opts.ssml)
+                    return synthesizer.speak_ssml_async(ssmlstring).get()  # type: ignore
+                else:
+                    return synthesizer.speak_text_async(self._text).get()  # type: ignore
 
             result = await asyncio.to_thread(_synthesize)
             if result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
